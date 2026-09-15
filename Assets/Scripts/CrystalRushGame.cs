@@ -31,7 +31,7 @@ public sealed class CrystalRushGame : MonoBehaviour
     private Transform crystalRoot;
     private PlayerController player;
     private ChaserController enemy;
-    private readonly List<CrystalPickup> crystals = new();
+    private readonly List<CrystalPickup> crystals = new List<CrystalPickup>();
 
     private float timeRemaining;
     private int score;
@@ -45,16 +45,16 @@ public sealed class CrystalRushGame : MonoBehaviour
     private TextMeshProUGUI actionButtonText;
     private UnityEngine.UI.Button actionButton;
 
-    private static readonly Color Navy = new(0.025f, 0.045f, 0.10f, 1f);
-    private static readonly Color PanelBlue = new(0.055f, 0.10f, 0.20f, 0.96f);
-    private static readonly Color Cyan = new(0.16f, 0.90f, 1f, 1f);
-    private static readonly Color Gold = new(1f, 0.72f, 0.18f, 1f);
-    private static readonly Color Red = new(1f, 0.25f, 0.34f, 1f);
+    private static readonly Color Navy = new Color(0.025f, 0.045f, 0.10f, 1f);
+    private static readonly Color PanelBlue = new Color(0.055f, 0.10f, 0.20f, 0.96f);
+    private static readonly Color Cyan = new Color(0.16f, 0.90f, 1f, 1f);
+    private static readonly Color Gold = new Color(1f, 0.72f, 0.18f, 1f);
+    private static readonly Color Red = new Color(1f, 0.25f, 0.34f, 1f);
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void Bootstrap()
     {
-        if (FindFirstObjectByType<CrystalRushGame>() != null)
+        if (FindAnyObjectByType<CrystalRushGame>() != null)
         {
             return;
         }
@@ -100,11 +100,11 @@ public sealed class CrystalRushGame : MonoBehaviour
 
     public bool IsPlaying => state == GameState.Playing;
 
-    public Vector2 PlayerPosition => player == null ? Vector2.zero : player.transform.position;
+    public Vector2 PlayerPosition => player == null ? Vector2.zero : (Vector2)player.transform.position;
 
     private void BuildCamera()
     {
-        foreach (var existingCamera in FindObjectsByType<Camera>(FindObjectsSortMode.None))
+        foreach (var existingCamera in FindObjectsByType<Camera>())
         {
             existingCamera.enabled = false;
         }
@@ -158,7 +158,7 @@ public sealed class CrystalRushGame : MonoBehaviour
         scaler.matchWidthOrHeight = 0.5f;
         canvasObject.AddComponent<UnityEngine.UI.GraphicRaycaster>();
 
-        if (FindFirstObjectByType<EventSystem>() == null)
+        if (FindAnyObjectByType<EventSystem>() == null)
         {
             var eventSystemObject = new GameObject("EventSystem");
             eventSystemObject.transform.SetParent(transform);
@@ -198,7 +198,7 @@ public sealed class CrystalRushGame : MonoBehaviour
         overlayBody = CreateText("OverlayBody", card.transform, "Collect all 10 crystals before the hunter catches you.\n\nMove with WASD or the arrow keys.", 25f, Color.white, FontStyles.Normal);
         Anchor(overlayBody.rectTransform, new Vector2(0.08f, 0.28f), new Vector2(0.92f, 0.64f), new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
         overlayBody.alignment = TextAlignmentOptions.Center;
-        overlayBody.enableWordWrapping = true;
+        overlayBody.textWrappingMode = TextWrappingModes.Normal;
 
         actionButton = CreateButton("ActionButton", card.transform, "START GAME", BeginRound);
         Anchor(actionButton.GetComponent<RectTransform>(), new Vector2(0.22f, 0.08f), new Vector2(0.78f, 0.24f), new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
