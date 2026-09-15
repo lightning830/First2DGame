@@ -1,0 +1,54 @@
+# Unity generated folders and files
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+[Mm]emoryCaptures/
+[Rr]ecordings/
+
+# IDE and local tooling files
+.vs/
+.vscode/
+.idea/
+*.csproj
+*.sln
+*.suo
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Crash reports
+sysinfo.txt
+
+# Visual Studio cache
+ExportedObj/
+obj/
+
+# Build output
+*.apk
+*.aab
+*.app
+*.exe
+*.x86
+*.x86_64
+*.dll
+*.so
+*.dylib
+*.pdb
+*.mdb
+*.opendb
+
