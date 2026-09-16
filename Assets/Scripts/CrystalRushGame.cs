@@ -1,14 +1,11 @@
-using System;
 using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
-using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
-using UnityEngine.InputSystem.UI;
 
 /// <summary>
-/// A small playable first game built entirely from runtime-generated shapes.
-/// This keeps the first prototype free from external art dependencies.
+/// A small playable first game assembled from a scene and reusable prefabs.
+/// Runtime code owns the round state while the Unity hierarchy owns the layout.
 /// </summary>
 public sealed class CrystalRushGame : MonoBehaviour
 {
@@ -29,6 +26,9 @@ public sealed class CrystalRushGame : MonoBehaviour
     private Camera gameCamera;
     private Transform worldRoot;
     private Transform crystalRoot;
+    private Transform crystalSpawnRoot;
+    private Transform playerSpawn;
+    private Transform enemySpawn;
     private PlayerController player;
     private ChaserController enemy;
     private readonly List<CrystalPickup> crystals = new List<CrystalPickup>();
@@ -37,6 +37,7 @@ public sealed class CrystalRushGame : MonoBehaviour
     private int score;
 
     private GameObject hudRoot;
+    private GameObject canvasRoot;
     private GameObject overlayRoot;
     private TextMeshProUGUI scoreText;
     private TextMeshProUGUI timerText;
@@ -44,32 +45,69 @@ public sealed class CrystalRushGame : MonoBehaviour
     private TextMeshProUGUI overlayBody;
     private TextMeshProUGUI actionButtonText;
     private UnityEngine.UI.Button actionButton;
+    private GameObject playerPrefab;
+    private GameObject enemyPrefab;
+    private GameObject crystalPrefab;
 
     private static readonly Color Navy = new Color(0.025f, 0.045f, 0.10f, 1f);
-    private static readonly Color PanelBlue = new Color(0.055f, 0.10f, 0.20f, 0.96f);
     private static readonly Color Cyan = new Color(0.16f, 0.90f, 1f, 1f);
     private static readonly Color Gold = new Color(1f, 0.72f, 0.18f, 1f);
     private static readonly Color Red = new Color(1f, 0.25f, 0.34f, 1f);
 
-    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
-    private static void Bootstrap()
+    private void Awake()
     {
-        if (FindAnyObjectByType<CrystalRushGame>() != null)
+        if (!BindSceneReferences())
         {
+            enabled = false;
             return;
         }
 
-        var gameObject = new GameObject("CrystalRushGame");
-        gameObject.AddComponent<CrystalRushGame>();
-    }
-
-    private void Awake()
-    {
-        DontDestroyOnLoad(gameObject);
         BuildCamera();
         BuildWorld();
         BuildUi();
         ShowTitle();
+    }
+
+    private bool BindSceneReferences()
+    {
+        gameCamera = GameObject.Find("Main Camera")?.GetComponent<Camera>();
+        worldRoot = transform.Find("CrystalRushWorld");
+        crystalRoot = worldRoot?.Find("Crystals");
+        crystalSpawnRoot = worldRoot?.Find("CrystalSpawns");
+        playerSpawn = worldRoot?.Find("PlayerSpawn");
+        enemySpawn = worldRoot?.Find("HunterSpawn");
+        canvasRoot = transform.Find("CrystalRushCanvas")?.gameObject;
+        hudRoot = canvasRoot?.transform.Find("Hud")?.gameObject;
+        overlayRoot = canvasRoot?.transform.Find("Overlay")?.gameObject;
+        scoreText = canvasRoot?.transform.Find("Hud/Score")?.GetComponent<TextMeshProUGUI>();
+        timerText = canvasRoot?.transform.Find("Hud/Timer")?.GetComponent<TextMeshProUGUI>();
+        overlayTitle = canvasRoot?.transform.Find("Overlay/Card/OverlayTitle")?.GetComponent<TextMeshProUGUI>();
+        overlayBody = canvasRoot?.transform.Find("Overlay/Card/OverlayBody")?.GetComponent<TextMeshProUGUI>();
+        actionButton = canvasRoot?.transform.Find("Overlay/Card/ActionButton")?.GetComponent<UnityEngine.UI.Button>();
+        actionButtonText = actionButton?.GetComponentInChildren<TextMeshProUGUI>();
+        playerPrefab = Resources.Load<GameObject>("CrystalRush/Prefabs/Player");
+        enemyPrefab = Resources.Load<GameObject>("CrystalRush/Prefabs/Hunter");
+        crystalPrefab = Resources.Load<GameObject>("CrystalRush/Prefabs/Crystal");
+
+        if (gameCamera == null || worldRoot == null || crystalRoot == null || crystalSpawnRoot == null || playerSpawn == null || enemySpawn == null || canvasRoot == null ||
+            hudRoot == null || overlayRoot == null || scoreText == null || timerText == null || overlayTitle == null ||
+            overlayBody == null || actionButton == null || actionButtonText == null || playerPrefab == null ||
+            enemyPrefab == null || crystalPrefab == null)
+        {
+            Debug.LogError("CrystalRushGame scene references or prefabs are incomplete. Check the CrystalRush hierarchy and Resources/CrystalRush/Prefabs.", this);
+            return false;
+        }
+
+        actionButton.onClick.RemoveAllListeners();
+        actionButton.onClick.AddListener(BeginRound);
+        foreach (var text in canvasRoot.GetComponentsInChildren<TextMeshProUGUI>(true))
+        {
+            if (text.font == null && TMP_Settings.defaultFontAsset != null)
+            {
+                text.font = TMP_Settings.defaultFontAsset;
+            }
+        }
+        return true;
     }
 
     private void Update()
@@ -104,15 +142,7 @@ public sealed class CrystalRushGame : MonoBehaviour
 
     private void BuildCamera()
     {
-        foreach (var existingCamera in FindObjectsByType<Camera>())
-        {
-            existingCamera.enabled = false;
-        }
-
-        var cameraObject = new GameObject("CrystalRushCamera");
-        cameraObject.transform.SetParent(transform);
-        cameraObject.transform.position = new Vector3(0f, 0f, -10f);
-        gameCamera = cameraObject.AddComponent<Camera>();
+        gameCamera.enabled = true;
         gameCamera.orthographic = true;
         gameCamera.orthographicSize = 5.5f;
         gameCamera.clearFlags = CameraClearFlags.SolidColor;
@@ -122,87 +152,28 @@ public sealed class CrystalRushGame : MonoBehaviour
 
     private void BuildWorld()
     {
-        worldRoot = new GameObject("CrystalRushWorld").transform;
-        worldRoot.SetParent(transform);
-        crystalRoot = new GameObject("Crystals").transform;
-        crystalRoot.SetParent(worldRoot);
-
-        CreateBlock("ArenaBackground", Vector2.zero, new Vector2(18f, 11f), Navy, 2, -10);
-        CreateBlock("TopBorder", new Vector2(0f, ArenaHalfHeight), new Vector2(17.3f, 0.10f), Cyan, 1, 10);
-        CreateBlock("BottomBorder", new Vector2(0f, -ArenaHalfHeight), new Vector2(17.3f, 0.10f), Cyan, 1, 10);
-        CreateBlock("LeftBorder", new Vector2(-ArenaHalfWidth, 0f), new Vector2(0.10f, 9.1f), Cyan, 1, 10);
-        CreateBlock("RightBorder", new Vector2(ArenaHalfWidth, 0f), new Vector2(0.10f, 9.1f), Cyan, 1, 10);
+        ConfigureBlock("ArenaBackground", Vector2.zero, new Vector2(18f, 11f), Navy, 2, -10);
+        ConfigureBlock("TopBorder", new Vector2(0f, ArenaHalfHeight), new Vector2(17.3f, 0.10f), Cyan, 1, 10);
+        ConfigureBlock("BottomBorder", new Vector2(0f, -ArenaHalfHeight), new Vector2(17.3f, 0.10f), Cyan, 1, 10);
+        ConfigureBlock("LeftBorder", new Vector2(-ArenaHalfWidth, 0f), new Vector2(0.10f, 9.1f), Cyan, 1, 10);
+        ConfigureBlock("RightBorder", new Vector2(ArenaHalfWidth, 0f), new Vector2(0.10f, 9.1f), Cyan, 1, 10);
 
         for (var x = -7; x <= 7; x += 2)
         {
-            CreateBlock($"GridLineX{x}", new Vector2(x, 0f), new Vector2(0.035f, 9.0f), new Color(0.12f, 0.30f, 0.40f, 0.16f), 1, -5);
+            ConfigureBlock($"GridLineX{x}", new Vector2(x, 0f), new Vector2(0.035f, 9.0f), new Color(0.12f, 0.30f, 0.40f, 0.16f), 1, -5);
         }
 
         for (var y = -3; y <= 3; y += 2)
         {
-            CreateBlock($"GridLineY{y}", new Vector2(0f, y), new Vector2(17.0f, 0.035f), new Color(0.12f, 0.30f, 0.40f, 0.16f), 1, -5);
+            ConfigureBlock($"GridLineY{y}", new Vector2(0f, y), new Vector2(17.0f, 0.035f), new Color(0.12f, 0.30f, 0.40f, 0.16f), 1, -5);
         }
     }
 
     private void BuildUi()
     {
-        var canvasObject = new GameObject("CrystalRushCanvas");
-        canvasObject.transform.SetParent(transform);
-        var canvas = canvasObject.AddComponent<UnityEngine.Canvas>();
+        var canvas = canvasRoot.GetComponent<UnityEngine.Canvas>();
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
         canvas.sortingOrder = 100;
-
-        var scaler = canvasObject.AddComponent<UnityEngine.UI.CanvasScaler>();
-        scaler.uiScaleMode = UnityEngine.UI.CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        scaler.referenceResolution = new Vector2(1920f, 1080f);
-        scaler.matchWidthOrHeight = 0.5f;
-        canvasObject.AddComponent<UnityEngine.UI.GraphicRaycaster>();
-
-        if (FindAnyObjectByType<EventSystem>() == null)
-        {
-            var eventSystemObject = new GameObject("EventSystem");
-            eventSystemObject.transform.SetParent(transform);
-            eventSystemObject.AddComponent<EventSystem>();
-            eventSystemObject.AddComponent<InputSystemUIInputModule>();
-        }
-
-        hudRoot = CreatePanel("Hud", canvasObject.transform, new Color(0.02f, 0.06f, 0.12f, 0.92f));
-        StretchTop(hudRoot.GetComponent<RectTransform>(), 116f);
-
-        var title = CreateText("HudTitle", hudRoot.transform, "CRYSTAL RUSH", 30f, Cyan, FontStyles.Bold);
-        Anchor(title.rectTransform, new Vector2(0f, 0f), new Vector2(0.5f, 1f), new Vector2(0f, 0.5f), new Vector2(48f, 0f), new Vector2(460f, 0f));
-        title.alignment = TextAlignmentOptions.MidlineLeft;
-
-        scoreText = CreateText("Score", hudRoot.transform, "CRYSTALS  0 / 10", 28f, Color.white, FontStyles.Bold);
-        Anchor(scoreText.rectTransform, new Vector2(0.5f, 0f), new Vector2(0.75f, 1f), new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
-        scoreText.alignment = TextAlignmentOptions.Center;
-
-        timerText = CreateText("Timer", hudRoot.transform, "TIME  45", 28f, Gold, FontStyles.Bold);
-        Anchor(timerText.rectTransform, new Vector2(0.75f, 0f), new Vector2(1f, 1f), new Vector2(1f, 0.5f), new Vector2(-48f, 0f), new Vector2(360f, 0f));
-        timerText.alignment = TextAlignmentOptions.MidlineRight;
-
-        var hint = CreateText("Hint", canvasObject.transform, "WASD / ARROW KEYS   •   COLLECT EVERY CRYSTAL   •   R TO RESTART", 20f, new Color(0.70f, 0.85f, 0.92f, 0.86f), FontStyles.Normal);
-        Anchor(hint.rectTransform, new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 22f), new Vector2(0f, 42f));
-        hint.alignment = TextAlignmentOptions.Center;
-
-        overlayRoot = CreatePanel("Overlay", canvasObject.transform, new Color(0.01f, 0.025f, 0.07f, 0.78f));
-        StretchFull(overlayRoot.GetComponent<RectTransform>());
-
-        var card = CreatePanel("Card", overlayRoot.transform, PanelBlue);
-        Anchor(card.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(680f, 430f));
-
-        overlayTitle = CreateText("OverlayTitle", card.transform, "CRYSTAL RUSH", 58f, Cyan, FontStyles.Bold);
-        Anchor(overlayTitle.rectTransform, new Vector2(0f, 0.62f), new Vector2(1f, 0.92f), new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
-        overlayTitle.alignment = TextAlignmentOptions.Center;
-
-        overlayBody = CreateText("OverlayBody", card.transform, "Collect all 10 crystals before the hunter catches you.\n\nMove with WASD or the arrow keys.", 25f, Color.white, FontStyles.Normal);
-        Anchor(overlayBody.rectTransform, new Vector2(0.08f, 0.28f), new Vector2(0.92f, 0.64f), new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
-        overlayBody.alignment = TextAlignmentOptions.Center;
-        overlayBody.textWrappingMode = TextWrappingModes.Normal;
-
-        actionButton = CreateButton("ActionButton", card.transform, "START GAME", BeginRound);
-        Anchor(actionButton.GetComponent<RectTransform>(), new Vector2(0.22f, 0.08f), new Vector2(0.78f, 0.24f), new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
-        actionButtonText = actionButton.GetComponentInChildren<TextMeshProUGUI>();
     }
 
     private void BeginRound()
@@ -214,26 +185,18 @@ public sealed class CrystalRushGame : MonoBehaviour
         overlayRoot.SetActive(false);
         hudRoot.SetActive(true);
 
-        var playerObject = CreateActor("Player", new Vector2(0f, -3.25f), Cyan, Shape.Circle, 0.72f, 20);
-        player = playerObject.AddComponent<PlayerController>();
+        var playerObject = CreateActor(playerPrefab, "Player", playerSpawn.position, Cyan, Shape.Circle, 0.72f, 20);
+        player = playerObject.GetComponent<PlayerController>() ?? playerObject.AddComponent<PlayerController>();
         player.Initialize(this);
 
-        var enemyObject = CreateActor("Hunter", new Vector2(0f, 3.55f), Red, Shape.Diamond, 0.82f, 15);
-        enemy = enemyObject.AddComponent<ChaserController>();
+        var enemyObject = CreateActor(enemyPrefab, "Hunter", enemySpawn.position, Red, Shape.Diamond, 0.82f, 15);
+        enemy = enemyObject.GetComponent<ChaserController>() ?? enemyObject.AddComponent<ChaserController>();
         enemy.Initialize(this);
 
-        var positions = new[]
+        foreach (Transform spawn in crystalSpawnRoot)
         {
-            new Vector2(-6.4f, 2.4f), new Vector2(-3.2f, 3.1f), new Vector2(0.2f, 2.7f),
-            new Vector2(3.4f, 3.2f), new Vector2(6.4f, 2.1f), new Vector2(-6.1f, -1.2f),
-            new Vector2(-3.1f, -2.0f), new Vector2(0.8f, -0.8f), new Vector2(3.9f, -1.8f),
-            new Vector2(6.4f, -2.8f)
-        };
-
-        foreach (var position in positions)
-        {
-            var crystalObject = CreateActor("Crystal", position, Gold, Shape.Diamond, 0.42f, 12);
-            var crystal = crystalObject.AddComponent<CrystalPickup>();
+            var crystalObject = CreateActor(crystalPrefab, "Crystal", spawn.position, Gold, Shape.Diamond, 0.42f, 12);
+            var crystal = crystalObject.GetComponent<CrystalPickup>() ?? crystalObject.AddComponent<CrystalPickup>();
             crystal.Initialize(this);
             crystals.Add(crystal);
         }
@@ -346,28 +309,34 @@ public sealed class CrystalRushGame : MonoBehaviour
         }
     }
 
-    private GameObject CreateActor(string objectName, Vector2 position, Color color, Shape shape, float scale, int sortingOrder)
+    private GameObject CreateActor(GameObject prefab, string objectName, Vector2 position, Color color, Shape shape, float scale, int sortingOrder)
     {
-        var actor = new GameObject(objectName);
-        actor.transform.SetParent(worldRoot);
+        var actor = Instantiate(prefab, worldRoot);
+        actor.name = objectName;
         actor.transform.position = new Vector3(position.x, position.y, 0f);
         actor.transform.localScale = Vector3.one * scale;
-        var renderer = actor.AddComponent<SpriteRenderer>();
+        var renderer = actor.GetComponent<SpriteRenderer>();
         renderer.sprite = CreateSprite(objectName, color, shape);
+        renderer.color = color;
         renderer.sortingOrder = sortingOrder;
         return actor;
     }
 
-    private GameObject CreateBlock(string objectName, Vector2 position, Vector2 scale, Color color, float z, int sortingOrder)
+    private void ConfigureBlock(string objectName, Vector2 position, Vector2 scale, Color color, float z, int sortingOrder)
     {
-        var block = new GameObject(objectName);
-        block.transform.SetParent(worldRoot);
+        var block = worldRoot.Find(objectName)?.gameObject;
+        if (block == null)
+        {
+            Debug.LogError($"Missing scene object: {objectName}", this);
+            return;
+        }
+
         block.transform.position = new Vector3(position.x, position.y, z);
         block.transform.localScale = new Vector3(scale.x, scale.y, 1f);
-        var renderer = block.AddComponent<SpriteRenderer>();
+        var renderer = block.GetComponent<SpriteRenderer>();
         renderer.sprite = CreateSprite(objectName, color, Shape.Square);
+        renderer.color = color;
         renderer.sortingOrder = sortingOrder;
-        return block;
     }
 
     private static Sprite CreateSprite(string spriteName, Color color, Shape shape)
@@ -401,78 +370,6 @@ public sealed class CrystalRushGame : MonoBehaviour
         texture.SetPixels(pixels);
         texture.Apply();
         return Sprite.Create(texture, new Rect(0f, 0f, textureSize, textureSize), new Vector2(0.5f, 0.5f), textureSize);
-    }
-
-    private GameObject CreatePanel(string objectName, Transform parent, Color color)
-    {
-        var panel = new GameObject(objectName);
-        panel.transform.SetParent(parent, false);
-        var image = panel.AddComponent<UnityEngine.UI.Image>();
-        image.color = color;
-        image.raycastTarget = objectName == "Card";
-        return panel;
-    }
-
-    private TextMeshProUGUI CreateText(string objectName, Transform parent, string content, float size, Color color, FontStyles style)
-    {
-        var textObject = new GameObject(objectName);
-        textObject.transform.SetParent(parent, false);
-        var text = textObject.AddComponent<TextMeshProUGUI>();
-        text.text = content;
-        text.fontSize = size;
-        text.color = color;
-        text.fontStyle = style;
-        text.enableAutoSizing = false;
-        text.raycastTarget = false;
-        if (TMP_Settings.defaultFontAsset != null)
-        {
-            text.font = TMP_Settings.defaultFontAsset;
-        }
-
-        return text;
-    }
-
-    private UnityEngine.UI.Button CreateButton(string objectName, Transform parent, string label, Action onClick)
-    {
-        var buttonObject = new GameObject(objectName);
-        buttonObject.transform.SetParent(parent, false);
-        var image = buttonObject.AddComponent<UnityEngine.UI.Image>();
-        image.color = Cyan;
-        var button = buttonObject.AddComponent<UnityEngine.UI.Button>();
-        button.targetGraphic = image;
-        button.onClick.AddListener(() => onClick());
-        button.transition = UnityEngine.UI.Selectable.Transition.ColorTint;
-
-        var colors = button.colors;
-        colors.normalColor = Cyan;
-        colors.highlightedColor = Color.white;
-        colors.pressedColor = Gold;
-        colors.selectedColor = Cyan;
-        button.colors = colors;
-
-        var text = CreateText("Label", buttonObject.transform, label, 25f, Navy, FontStyles.Bold);
-        StretchFull(text.rectTransform);
-        text.alignment = TextAlignmentOptions.Center;
-        return button;
-    }
-
-    private static void StretchFull(RectTransform rectTransform)
-    {
-        Anchor(rectTransform, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
-    }
-
-    private static void StretchTop(RectTransform rectTransform, float height)
-    {
-        Anchor(rectTransform, new Vector2(0f, 1f), Vector2.one, new Vector2(0.5f, 1f), Vector2.zero, new Vector2(0f, height));
-    }
-
-    private static void Anchor(RectTransform rectTransform, Vector2 min, Vector2 max, Vector2 pivot, Vector2 position, Vector2 size)
-    {
-        rectTransform.anchorMin = min;
-        rectTransform.anchorMax = max;
-        rectTransform.pivot = pivot;
-        rectTransform.anchoredPosition = position;
-        rectTransform.sizeDelta = size;
     }
 
     private enum Shape
